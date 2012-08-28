@@ -15,9 +15,11 @@ ok( !$e->error, 'empty edit' );
 $e = PICA::Edit::Request->new( id => 'abc:foo' );
 ok( $e->error('id'), "malformed id" );
 ok( $e->error, 'malformed edit' );
+is( $e->status, -1, 'status: -1' );
 
 $e = PICA::Edit::Request->new( id => 'abc:ppn:123' );
 ok( !$e->error, 'edit with record id' );
+is( $e->status, 0, 'status: 0' );
 
 $pica = PICA::Record->new('003@ $01234');
 $x = { };

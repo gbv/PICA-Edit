@@ -2,11 +2,11 @@ package PICA::Edit::Request;
 #ABSTRACT: Modification request of an identified PICA+ record
 
 use 5.010;
-use strict;
-use warnings;
 
 use Carp;
+use Try::Tiny;
 use PICA::Record;
+use LWP::Simple ();
 
 =head1 DESCRIPTION
 
@@ -191,6 +191,39 @@ sub perform_strict {
     return $self->perform( $pica );
 }
 
+=method retrieve_and_perform ( unAPI => $url )
+
+Retrieve the record via unAPI. This method actually modifies the edit request,
+so you should only call it once.  On success the PICA+ record before and after
+modification is stored as L<PICA::Record> in the edit request. On failure, the
+error is added to the edit.
+
+=cut
+
+sub retrieve_and_perform {
+    my ($self, %args) = @_;
+    return $self if $self->error;
+
+    # TODO: move this to other code to separate retrieve and before/after (?) 
+
+    try { 
+        my $url = $args{unAPI} . '?format=pp&id=' . $self->{id};
+        $self->{before} = PICA::Record->new( LWP::Simple::get( $url ) ); 
+    } catch {
+        $self->error( id => 'failed to retrieve record' ); 
+    };
+
+    if ( $self->{before} ) {
+        try {
+            $self->{after} = $self->perform_strict( $self->{before} );
+        } catch {
+            while (my ($k,$v) = each %$_) {
+                $self->error( $k => $v );
+            }
+        };
+    }
+}
+
 =method error( $attribute => $message )
 
 Gets or sets an error message connected to an attribute.
@@ -211,93 +244,20 @@ sub error {
     return $message;
 }
 
-1;
+=method status
 
-__END__
+Returns the current status of this edit request, which is: -1 for edit requests
+with error, 0 for normal, wellformed edit request, 1 for performed edits, 2 for
+empty, performed edits.
 
-# Checks whether the edit could be performed
-sub validate_edit {
-    my $self  = shift;
-#    my $unapi = shift or croak 'Missing unAPI configuration';
+=cut
 
-    my $pica;
-    if ($self->{record} !~ /^test/) {
-        $pica = LWP::Simple::get( "$unapi?id=".$self->{record}."&format=pp" );
-        $pica = eval { PICA::Record->new( $pica ); };
-        if (!$pica) {
-            $self->{malformed}->{record} //= "not found";
-            croak "Failed to get PICA+ record";
-        }
-
-        # predict outcome
-        $self->{predict} = { deltag => { }, add => { } };
-        if ($self->{deltags}) {
-            foreach my $tag ( @{ $self->{del} } ) {
-                my $status = -1;
-                given($tag) {
-                    when(/^0/) { # exact tag
-                        my @fields = $pica->field($tag);
-                        $status = scalar @fields; 
-                    };
-                    when(/^1/) { 
-                        my $t = $tag =~ qr{/} ? $tag : "$tag/..";
-                        if ($holding) {
-                            my @f = $holding->field($t);
-                            $status = scalar @f;
-                        }
-                    };
-                    when(/^2/) {
-                        my $t = $tag =~ qr{/} ? $tag : "$tag/..";
-                        if ($item) {
-                            my @f = $item->field($t);
-                            $status = scalar @f;
-                        }
-                    };
-                }
-                $self->{predict}->{deltag}->{$tag} = $status;
-            }
-        }
-
-        if ($self->{addfields}) {
-            foreach my $f ( PICA::Record->new( $self->{addfields} )->fields ) {
-                # TODO: testen, ob Feld schon so vorhanden, dann löschen
-                $self->{predict}->{add}->{"$f"} = "0"
-            }
-        }
-
-        $self->{modrec} = "".edit_record($self, $pica);
-    }
-
+sub status {
+    my $self = shift;
+    return -1 if $self->error;
+    return 0 unless $self->{before} and $self->{after};
+    return 2 if $self->{before}->string eq $self->{after}->string;
     return 1;
 }
-
-
-# create a minimal record for editing
-sub get_record {
-    my ($self,$from) = @_;
-
-    my $pica = shift;
-
-    my $n = PICA::Record->new;
-    $n->ppn( $pica->ppn );
-
-    return $n;
-}
-
-
-# Creates an new edit with partly normalized (but not validated) values
-# TODO: remove
-sub new_edit {
-    my $self = { }; #bless { }, shift;
-    my %args = @_;
-
-    if ( my @mal = malformed_edit($self) ) {
-        $self->{malformed} = { map { $_ => "invalid" } @mal },
-        $self->{error}     = "invalid edit";
-    }
-
-    return $self;
-}
-
 
 1;
