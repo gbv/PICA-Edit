@@ -74,7 +74,7 @@ sub new {
 
     if ($self->{id} =~ /^(([a-z]([a-z0-9-]?[a-z0-9]))*:ppn:(\d+[0-9Xx]))?$/) {
         $self->{ppn}   = uc($4) if defined $4;
-        $self->{dbkey} = uc($5) if defined $5;
+        $self->{dbkey} = lc($2) if defined $2;
     } else {
         $self->error( id => "malformed record identifier" );
     }
