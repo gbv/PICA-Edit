@@ -1,4 +1,5 @@
 use Test::More;
+use Test::Exception;
 use strict;
 
 use PICA::Edit::Request;
@@ -11,19 +12,26 @@ eval {
     require DBD::SQLite;
     DBD::SQLite->import();
 };
-if ($@) {
-    plan skip_all => "Skipping tests in lack of DBD::SQLite";
-}
+plan skip_all => "Skipping tests in lack of DBD::SQLite" if $@;
+
+## test database configuration
+
+dies_ok { PICA::Edit::Queue->new( database => undef ) } 'database required';
 
 my $dbfile;
 (undef,$dbfile) = tempfile();
 my $dsn = "dbi:SQLite:dbname=$dbfile";
-my $database = DBI->connect($dsn,"","") 
+my $dbh = DBI->connect($dsn,"","") 
     or plan skip_all => "Skipping tests in lack of DBD::SQLite";
 
-my $q = PICA::Edit::Queue->new( db => $database );
-
+my $q = PICA::Edit::Queue->new( database => $dbh );
 isa_ok($q,'PICA::Edit::Queue');
+
+my $q = PICA::Edit::Queue->new( database => { dsn => $dsn } );
+isa_ok($q,'PICA::Edit::Queue');
+
+###
+
 is($q->count,0,'empty queue');
 
 sub picaedit { PICA::Edit::Request->new( id => "foo:ppn:789" ) };

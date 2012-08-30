@@ -1,0 +1,37 @@
+#!/usr/bin/perl
+
+use 5.012;
+use strict;
+
+use YAML::Any qw(Load);
+use PICA::Edit::Queue;
+use Data::Dumper;
+
+my $config = Load(join '',<DATA>);
+my $queue = PICA::Edit::Queue->new( %$config );
+$queue->logger->level('TRACE');
+
+# picaedit list [done|failed|rejected]
+#          request < edit
+#
+#          check  editid|recordid
+#          reject editid [message]
+#          
+#          preview editid
+#          preview < edit
+
+__DATA__
+
+database:
+  dsn: "dbi:SQLite:dbname=picaedit.sqlite"
+
+unapi: 'http://unapi.gbv.de/'
+	
+logger:
+  - class: 'Log::Log4perl::Appender::File'
+    filename: "picaedit.log"
+  - class: 'Log::Log4perl::Appender::Screen'
+
+loglevel: "TRACE"
+
+

@@ -1,10 +1,17 @@
 package PICA::Edit::Queue;
 #ABSTRACT: Manages a list of PICA edit requests
 
-use 5.010;
+use 5.012;
 use strict;
+
+#use Log::Contextual qw(:log set_logger);
+use Log::Log4perl;
+use Log::Log4perl::Appender;
+use Log::Log4perl::Layout::PatternLayout;
+
 use Carp;
 use DBI;
+use Scalar::Util qw(blessed reftype);
 
 =head1 DESCRIPTION
 
@@ -54,34 +61,122 @@ NoSQL databases.
 
 =cut
 
-=method new( db => $database )
+=method new( database => $database [, logger => $logger ] )
 
-Create a new Queue. Configuration must contain a L<DBI> database handle.
+Create a new Queue. See L</database> and C</logger> for configuration.
 
 =cut
 
 sub new {
     my ($class,%config) = @_;
 
-    my $db = $config{db};
-    croak "missing database handle" unless $db and $db->isa('DBI::db');
+    my $self = bless { }, $class;
 
-    my $self = bless { 
-        db    => $db,
-        table => 'changes',
-    }, $class;
-
-    $self->init;
+	$self->logger( $config{logger} );
+	$self->database( $config{database} );
+	$self->{unapi} = $config{unapi};
 
     $self;
 }
 
-sub init {
-    my $self = shift;
+=method logger( [ $logger | [ { %config }, ... ] )
+
+Globally set a L<Log::Log4perl> logger, either directly or by passing logger
+configuration. Logger configuration consists of an array reference with hashes
+that each contain configuration of L<Log::Log4perl::Appender>.  The default
+appender, as configured with C<logger(undef)> is equal to setting:
+
+    logger([{
+		class     => 'Log::Log4perl::Appender::Screen',
+		threshold => 'WARN'
+	}])
+
+To simply log to a file, one can use:
+
+	logger([{
+		class     => 'Log::Log4perl::Appender::File',
+		filename  => '/var/log/picaedit/error.log',
+		threshold => 'ERROR',
+		syswrite  => 1,
+	})
+
+Without C<threshold>, logging messages up to C<TRACE> are catched. To actually enable
+logging, one must specify a default logging level, for instance
+
+	logger->level('WARN');
+
+Use C<logger([]) to disable all loggers.
+
+E<Current logging will be changed to be global!>
+
+=cut
+
+sub logger {
+	my $self = shift;
+	return $self->{logger} unless @_;
+
+	if (blessed $_[0] and $_[0]->isa('Log::Log4perl::Logger')) {
+		return ($self->{logger} = $_[0]);
+	}
+
+	croak "logger configuration must be an array reference"
+		unless !$_[0] or (reftype($_[0]) || '') eq 'ARRAY';
+
+	my @config = $_[0] ? @{$_[0]} : ({
+		class     => 'Log::Log4perl::Appender::Screen',
+		threshold => 'WARN'
+	});
+
+	my $log = Log::Log4perl->get_logger( __PACKAGE__ );
+	foreach my $c (@config) {
+		my $app = Log::Log4perl::Appender->new( $c->{class}, %$c );
+		my $layout = Log::Log4perl::Layout::PatternLayout->new( 
+			$c->{layout} || "%d %p{1} %c: %m{chomp}%n" );
+		$app->layout( $layout);
+		$app->threshold( $c->{threshold} ) if exists $c->{threshold};
+		$log->add_appender($app);
+	}
+
+	$log->trace( "new logger initialized" );
+
+	return ($self->{logger} = $log);
+}
+
+=method database( [ $dbh | { %config } | %config ] )
+
+Get or set a database connection either as L<DBI> handle (config value C<dbh>)
+or with C<dsn>, C<username>, and C<password>. One can also set the C<table>. 
+
+=cut
+
+sub database {
+	my $self = shift;
+	return $self->{db} unless @_;
+
+	## first set database
+	
+	my $db = (blessed $_[0] and $_[0]->isa('DBI::db')) 
+		   ? { dbh => @_ }
+		   : ( ref $_[0] ? $_[0] : { @_ } );
+
+	if ($db->{dbh}) { 
+		$self->{db} = $db->{dbh};
+	} elsif ($db->{dsn}) {
+		$self->{db} = DBI->connect($db->{dsn}, $db->{username}, $db->{password});
+		croak "failed to connect to database: ".$DBI::errstr unless $self->{db};
+	} else {
+		croak "missing database configuration";
+	}
+
+	$self->{table} = $db->{table} || 'changes';
+
+	$self->logger->trace("Connected to database");
+
+
+	## then initialize database
+	my $table = $self->{db}->quote_identifier($self->{table});
 
     # FIXME: only tested in SQLite. See L<SQL::Translator> for other DBMS
-    my $db    = $self->{db};
-    my $table = $db->quote_identifier($self->{table});
     my $sql = <<"SQL";
 create table if not exists $table (
     `id`      NOT NULL,
@@ -98,7 +193,9 @@ create table if not exists $table (
 );
 SQL
 
-    $db->do( $sql );
+    $self->{db}->do( $sql );
+
+	return $self->{db};
 }
 
 =method insert( $edit, { creator => $creator } )
