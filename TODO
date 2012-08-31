@@ -1,0 +1,5 @@
+PICA::Edit::Server: 
+	Simple PSGI script
+
+PICA::Edit::Client
+	HTTP client

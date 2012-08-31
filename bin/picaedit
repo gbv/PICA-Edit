@@ -1,37 +1,117 @@
-#!/usr/bin/perl
+#!perl
+#PODNAME:  picaedit
+#ABSTRACT: manage a PICA edit queue via command line
 
-use 5.012;
 use strict;
+use warnings;
+use v5.10;
 
-use YAML::Any qw(Load);
-use PICA::Edit::Queue;
-use Data::Dumper;
+use App::picaedit;
 
-my $config = Load(join '',<DATA>);
-my $queue = PICA::Edit::Queue->new( %$config );
-$queue->logger->level('TRACE');
+my $pe = App::picaedit->new;
+$pe->parse_options(@ARGV);
 
-# picaedit list [done|failed|rejected]
-#          request < edit
-#
-#          check  editid|recordid
-#          reject editid [message]
-#          
-#          preview editid
-#          preview < edit
+# default config file
+$pe->{config} //= $_ for grep { -e $_ } qw(picaedit.conf);
 
-__DATA__
+$pe->prepare;
 
-database:
-  dsn: "dbi:SQLite:dbname=picaedit.sqlite"
+# default loglevel
+$pe->logger->level( $pe->{loglevel} || 'INFO' );
 
-unapi: 'http://unapi.gbv.de/'
-	
-logger:
-  - class: 'Log::Log4perl::Appender::File'
-    filename: "picaedit.log"
-  - class: 'Log::Log4perl::Appender::Screen'
+$pe->execute;
 
-loglevel: "TRACE"
+=head1 NAME
 
+picaedit - manage a PICA edit queue via command line
 
+=head1 SYNOPSIS
+
+  # general calling syntax
+  picaedit [options] action [arguments]
+
+  # actions
+  picaedit list [done|failed|rejected|pending] [limit=N]
+           request < edit
+ 
+           check  editid | recordid
+           reject editid [message]
+           
+           preview editid
+           preview < edit
+
+  Configuration values can also be passed as key=value pairs.
+
+=head1 ACTIONS
+
+=over 4
+
+=item list
+
+...
+
+=item request
+
+Add a new edit request to the queue.
+
+=item preview
+
+...
+
+=item check
+
+...
+
+=item reject
+
+...
+
+=back
+
+=head1 CONFIGURATION
+
+Configuration is read from a config file on YAML format.  If no config file is
+specified, it is searched for as C<picaedit.conf> in the current directory. The
+following config values are recognized, among others:
+
+=over 4
+
+=item database
+
+A database connection with fields C<dsn>, C<user>, and C<password>.
+
+=item unapi
+
+Base URL of an unAPI server to retrieve records from.
+
+=item loglevel
+
+Logging level (ALL,TRACE,DEBUG,INFO,WARN,ERROR,FATAL). Set to WARN by default.
+
+=item logger
+
+A list of 
+
+=back
+
+Configuration values can be passed on command line or read from config file.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -c, --config
+
+Point to a config file.
+
+=item -h, --help
+
+Print short help and exit.
+
+=item -v, --version
+
+Print version and exit.
+
+=back
+
+=cut

@@ -1,12 +1,14 @@
 package PICA::Edit::Request;
 #ABSTRACT: Modification request of an identified PICA+ record
 
-use 5.010;
+use strict;
+use warnings;
+use v5.10;
 
 use Carp;
+use JSON;
 use Try::Tiny;
 use PICA::Record;
-use LWP::Simple ();
 
 =head1 DESCRIPTION
 
@@ -37,46 +39,61 @@ A stringified PICA+ record with fields to be added.
 
 =back
 
+In addition, a mapping from malformed attributes (id,iln,epn,del,add) to error
+messages is stored in the special C<errors> attributes, to check whether and
+why an edit is malformed or invalid.
+
 =cut
 
-sub trim { 
-    my $s = shift // ''; 
-    $s =~ s/^\s+|\s+$//g; $s; 
-}
+=method new ( %attributes | $string )
 
-=method new ( %attributes )
+Creates a new edit request either from attributes or from JSON/YAML format.
 
-Creates a new edit request from attributes. An edit request, once created,
-should not be modified. On creation, all attributes are checked for
-wellformedness and normalized. On error the constructor does not carp but
-it collects a list of error messages, each connected to the attribute that
-an error originates from.
+An edit request, once created, should not be modified. On creation, all
+attributes are checked for wellformedness and normalized. On error the
+constructor does not carp but it collects a list of error messages, each
+connected to the attribute that an error originates from.
 
 =cut
 
 sub new {
-    my ($class, %args) = @_;
+	my $class = shift;
+	my %args  = (@_ % 2) ? do {
+		#my $data = YAML::Any::Load(shift."\n");
+		my $data = JSON->new->decode(shift);
+		%{$data};
+	} : @_;
 
     my $self = bless {
+		map { $_ => ($args{$_} // '') } qw(id iln epn del add)
+	}, $class;
 
-        # attributes
-        id    => trim( $args{id}  // '' ),
-        iln   => trim( $args{iln} // '' ),
-        epn   => trim( $args{epn} // '' ),
-        del   => trim( $args{del} // '' ),
-        add   => trim( $args{add} // '' ),
+	$self->check;
+}
 
-        # mapping from malformed attributes (id,iln,epn,del,add) to messages
-        errors => { },
-    }, $class;
+=method check
 
-    # check and normalize attributes
+Checks and normalized all attributes. Resets all errors.
 
-    if ($self->{id} =~ /^(([a-z]([a-z0-9-]?[a-z0-9]))*:ppn:(\d+[0-9Xx]))?$/) {
-        $self->{ppn}   = uc($4) if defined $4;
-        $self->{dbkey} = lc($2) if defined $2;
+=cut
+
+sub check {
+	my $self = shift;
+
+	$self->{errors} = { };
+
+	foreach my $attr (qw(id iln epn del add)) {
+		my $value = $self->{$attr} // '';
+	    $value =~ s/^\s+|\s+$//g;
+		$self->{$attr} = $value;
+	}
+
+    if ($self->{id} =~ /^([a-z]([a-z0-9-]?[a-z0-9]))*:ppn:(\d+[0-9Xx])$/) {
+        $self->{ppn}   = uc($3) if defined $3;
+        $self->{dbkey} = lc($1) if defined $1;
     } else {
-        $self->error( id => "malformed record identifier" );
+        $self->error( id => ($self->{id} eq '' ? "missing" : "malformed") 
+			. " record identifier" );
     }
 
     $self->error( iln => "malformed ILN" ) unless $self->{iln} =~ /^\d*$/;
@@ -88,17 +105,18 @@ sub new {
         if ($pica) {
             $pica->sort;
 	    	$self->{add} = "$pica";
+			chomp $self->{add};
         } else {
             $self->error( add => "malformed fields to add" );
         }
     }
 
-    $self->{del} = [ 
-        sort grep { $_ !~ /^\s*$/ } split(/\s*,\s*/, $self->{del}) 
-    ];
+	my @del = sort grep { $_ !~ /^\s*$/ } split(/\s*,\s*/, $self->{del});
 
-    $self->error( del => "malformed fields to remove" )
-        if grep { $_ !~  qr{^[012]\d\d[A-Z@](/\d\d)?$} } @{ $self->{del} };
+	$self->error( del => "malformed fields to remove" )
+        if grep { $_ !~  qr{^[012]\d\d[A-Z@](/\d\d)?$} } @del;
+
+    $self->{del} = join (',', @del);
 
     return $self;
 }
@@ -140,14 +158,13 @@ sub perform {
         } 
         $result->append( $h->fields );
 
-        # TODO: level2 noch nicht nicht unterstützt
+        # TODO: level2 noch nicht unterstützt
     }
 
     $result->sort;
 
     return $result;
 }
-
 
 =method perform_strict
 
@@ -163,9 +180,9 @@ sub perform_strict {
 
     return if $self->error;
 
-    croak( { id => "record not found" } ) unless $pica;
-    croak( { id => "missing record ID" } ) unless $self->{id};
-    croak( { id => "PPN does not match" } ) unless $self->{ppn} eq $pica->ppn;
+	croak( { id => "record not found" } ) unless $pica;
+    croak( { id => "PPN does not match:" } ) 
+		unless $self->{ppn} eq $pica->ppn;
 
     unless( $self->{add} or $self->{del} ) {
         croak {
@@ -189,39 +206,6 @@ sub perform_strict {
     }
 
     return $self->perform( $pica );
-}
-
-=method retrieve_and_perform ( unAPI => $url )
-
-Retrieve the record via unAPI. This method actually modifies the edit request,
-so you should only call it once.  On success the PICA+ record before and after
-modification is stored as L<PICA::Record> in the edit request. On failure, the
-error is added to the edit.
-
-=cut
-
-sub retrieve_and_perform {
-    my ($self, %args) = @_;
-    return $self if $self->error;
-
-    # TODO: move this to other code to separate retrieve and before/after (?) 
-
-    try { 
-        my $url = $args{unAPI} . '?format=pp&id=' . $self->{id};
-        $self->{before} = PICA::Record->new( LWP::Simple::get( $url ) ); 
-    } catch {
-        $self->error( id => 'failed to retrieve record' ); 
-    };
-
-    if ( $self->{before} ) {
-        try {
-            $self->{after} = $self->perform_strict( $self->{before} );
-        } catch {
-            while (my ($k,$v) = each %$_) {
-                $self->error( $k => $v );
-            }
-        };
-    }
 }
 
 =method error( $attribute => $message )
@@ -252,7 +236,7 @@ empty, performed edits.
 
 =cut
 
-sub status {
+sub status { # TODO: remove from this class?
     my $self = shift;
     return -1 if $self->error;
     return 0 unless $self->{before} and $self->{after};

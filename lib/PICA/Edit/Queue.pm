@@ -1,17 +1,14 @@
 package PICA::Edit::Queue;
 #ABSTRACT: Manages a list of PICA edit requests
 
-use 5.012;
 use strict;
-
-#use Log::Contextual qw(:log set_logger);
-use Log::Log4perl;
-use Log::Log4perl::Appender;
-use Log::Log4perl::Layout::PatternLayout;
+use warnings;
+use v5.12;
 
 use Carp;
 use DBI;
-use Scalar::Util qw(blessed reftype);
+use Scalar::Util qw(blessed);
+use Log::Contextual qw(:log :dlog);
 
 =head1 DESCRIPTION
 
@@ -61,9 +58,9 @@ NoSQL databases.
 
 =cut
 
-=method new( database => $database [, logger => $logger ] )
+=method new( database => $database )
 
-Create a new Queue. See L</database> and C</logger> for configuration.
+Create a new Queue. See L</database> for configuration.
 
 =cut
 
@@ -71,75 +68,9 @@ sub new {
     my ($class,%config) = @_;
 
     my $self = bless { }, $class;
-
-	$self->logger( $config{logger} );
 	$self->database( $config{database} );
-	$self->{unapi} = $config{unapi};
 
     $self;
-}
-
-=method logger( [ $logger | [ { %config }, ... ] )
-
-Globally set a L<Log::Log4perl> logger, either directly or by passing logger
-configuration. Logger configuration consists of an array reference with hashes
-that each contain configuration of L<Log::Log4perl::Appender>.  The default
-appender, as configured with C<logger(undef)> is equal to setting:
-
-    logger([{
-		class     => 'Log::Log4perl::Appender::Screen',
-		threshold => 'WARN'
-	}])
-
-To simply log to a file, one can use:
-
-	logger([{
-		class     => 'Log::Log4perl::Appender::File',
-		filename  => '/var/log/picaedit/error.log',
-		threshold => 'ERROR',
-		syswrite  => 1,
-	})
-
-Without C<threshold>, logging messages up to C<TRACE> are catched. To actually enable
-logging, one must specify a default logging level, for instance
-
-	logger->level('WARN');
-
-Use C<logger([]) to disable all loggers.
-
-E<Current logging will be changed to be global!>
-
-=cut
-
-sub logger {
-	my $self = shift;
-	return $self->{logger} unless @_;
-
-	if (blessed $_[0] and $_[0]->isa('Log::Log4perl::Logger')) {
-		return ($self->{logger} = $_[0]);
-	}
-
-	croak "logger configuration must be an array reference"
-		unless !$_[0] or (reftype($_[0]) || '') eq 'ARRAY';
-
-	my @config = $_[0] ? @{$_[0]} : ({
-		class     => 'Log::Log4perl::Appender::Screen',
-		threshold => 'WARN'
-	});
-
-	my $log = Log::Log4perl->get_logger( __PACKAGE__ );
-	foreach my $c (@config) {
-		my $app = Log::Log4perl::Appender->new( $c->{class}, %$c );
-		my $layout = Log::Log4perl::Layout::PatternLayout->new( 
-			$c->{layout} || "%d %p{1} %c: %m{chomp}%n" );
-		$app->layout( $layout);
-		$app->threshold( $c->{threshold} ) if exists $c->{threshold};
-		$log->add_appender($app);
-	}
-
-	$log->trace( "new logger initialized" );
-
-	return ($self->{logger} = $log);
 }
 
 =method database( [ $dbh | { %config } | %config ] )
@@ -170,7 +101,7 @@ sub database {
 
 	$self->{table} = $db->{table} || 'changes';
 
-	$self->logger->trace("Connected to database");
+	log_trace { "Connected to database" };
 
 
 	## then initialize database
@@ -211,7 +142,8 @@ sub insert {
 
     my %data = ( map { $_ => $edit->{$_} } qw(id iln epn add del) );
     $data{creator} = $attr{creator} || '';
-    $data{del}   = join(',',@{$data{del}});
+	$data{status}  = $attr{status} // 0;
+	$data{message} = $attr{message} // "";
 
     my $db    = $self->{db};
     my $table = $db->quote_identifier($self->{table});
@@ -223,16 +155,18 @@ sub insert {
     my @bind  = values %data;
 
     $db->do( $sql, undef, @bind );
+	$db->last_insert_id(undef,undef, $self->{table}, 'edit_id');
 }
 
-=method remove( $edit_id )
+=method remove( { edit_id => $edit_id } )
 
-Entirely removes an edit request.
+Entirely remove an edit requests. Returns the number of removed requests.
 
 =cut
 
 sub remove {
-    my ($self, $edit_id) = @_;
+    my ($self, $where) = @_;
+	my $edit_id = $where->{edit_id};
 
     my $db    = $self->{db};
     my $table = $db->quote_identifier($self->{table});
@@ -240,7 +174,25 @@ sub remove {
               . $db->quote_identifier('edit_id')
               . "=?";
 
-    $db->do( $sql, undef, $edit_id );
+    my $num = 1*$self->_dbdo( $sql, undef, $edit_id );
+	log_warn { 'edit request not found to remove' } unless $num;
+	return $num;
+}
+
+sub _dbdo {
+	my $self = shift;
+	my $sql  = shift;
+	my $attr = shift;
+	my @bind = @_;
+
+    my $db   = $self->{db};
+
+	log_trace { "SQL '$sql': ".join(',',@bind) };
+
+	my $r = $db->do( $sql, $attr, @bind );
+	log_error { $DBI::errstr; } unless $r;
+
+	return $r;
 }
 
 =method select( { key => $value ... } [ , { limit => $limit } ] )
@@ -252,12 +204,11 @@ Retrieve one or multiple edit requests.
 sub select {
     my ($self, $where, $opts) = @_;
 
-    my $opts ||= { };
+    $opts ||= { };
     my $db    = $self->{db};
     my $table = $db->quote_identifier($self->{table});
 
-    my $limit = $opts->{limit} || '';
-    $limit = 1 if !wantarray and !$limit;
+    my $limit = $opts->{limit} || (wantarray ? 0 : 1);
 
     my $which_cols = '*';
     # $which_cols = join(',', map { $db->quote_identifier($_) } @cols);
@@ -308,21 +259,36 @@ sub count {
     return $count;
 }
 
-=method update( { edit_id => $edit_id} { status => $status [, message => $message ] } )
+=method update( { status => $status [, message => $message ] }, { edit_id => $edit_id})
 
 Reject (status/message), 
 
 =cut
 
 sub update {
-    my ($self, $where, $values) = @_;
+    my ($self, $data, $where) = @_;
 
-    # message, status, lastcheck (timestamp)
-    
-#SET updated = CURRENT_TIMESTAMP
-    # create timestamp and store
-    #
+	croak "missing where clause in update" unless %$where;
+	croak "missing data in update" unless %$data;
 
+    my $db    = $self->{db};
+    my $table = $db->quote_identifier($self->{table});
+
+    my @bind_params;
+	($where, @bind_params) = $self->_where_clause( $where );
+
+	Dlog_trace { "UPDATE $_" } @_;
+
+	my $values = join ',', map { $db->quote_identifier($_) .'=?' } keys %$data;
+
+    my $sql = "UPDATE $table SET $values"
+		. ', '.$db->quote_identifier('updated').'=CURRENT_TIMESTAMP'
+		. " $where";
+    @bind_params = (values %$data, @bind_params);
+
+    my $num = $self->_dbdo( $sql, undef, @bind_params );
+	log_warn { 'edit request not found to update' } unless $num;
+	return ($num ? 1*$num : $num);
 }
 
 =method reject( $edit_id, { message => $message } )
@@ -332,6 +298,14 @@ Reject an edit request, optional with a message.
 =cut
 
 sub reject {
+	...
 }
 
 1;
+
+=head1 LOGGING
+
+PICA::Edit::Queue uses L<Log::Contextual> for logging. No default package
+logger is set so you E<must> set a logger in order to use this module.
+
+=cut
