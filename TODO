@@ -3,3 +3,21 @@ PICA::Edit::Server:
 
 PICA::Edit::Client
 	HTTP client
+
+
+Command line
+------------
+
+arguments => CALL-Object
+
+Backend: CALL => RESPONSE 
+  arguments => call => (result object | result error)
+
+RESPONSE-Object ( error or anything )
+
+#execute_cli(
+
+#execute_obj( $c
+
+RESPONSE:
+    

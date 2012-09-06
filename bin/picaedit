@@ -1,4 +1,4 @@
-#!perl
+#!/usr/bin/perl
 #PODNAME:  picaedit
 #ABSTRACT: manage a PICA edit queue via command line
 
@@ -7,19 +7,11 @@ use warnings;
 use v5.10;
 
 use App::picaedit;
+use App::Run;
 
-my $pe = App::picaedit->new;
-$pe->parse_options(@ARGV);
-
-# default config file
-$pe->{config} //= $_ for grep { -e $_ } qw(picaedit.conf);
-
-$pe->prepare;
-
-# default loglevel
-$pe->logger->level( $pe->{loglevel} || 'INFO' );
-
-$pe->execute;
+my $app = App::picaedit->new;
+my $run = App::Run->new( $app, loglevel => 'INFO' );
+$run->run_with_args( @ARGV );
 
 =head1 NAME
 
@@ -70,8 +62,7 @@ Add a new edit request to the queue.
 
 =head1 CONFIGURATION
 
-Configuration is read from a config file on YAML format.  If no config file is
-specified, it is searched for as C<picaedit.conf> in the current directory. The
+Configuration is read from a config file (e.g. C<picaedit.yml>. The
 following config values are recognized, among others:
 
 =over 4

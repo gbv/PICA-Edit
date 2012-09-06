@@ -5,8 +5,6 @@ use strict;
 use warnings;
 use v5.10;
 
-use base 'App::Command'; # at least 0.00_1
-
 use Carp;
 use Try::Tiny;
 use Scalar::Util qw(reftype blessed);
@@ -22,12 +20,22 @@ use IO::Interactive qw(is_interactive);
 use JSON;
 our $JSON = JSON->new->utf8(1)->pretty(1);
 
+sub new {
+	my $class = shift;
+	bless {@_}, $class;
+}
+
 sub init {
-    my $self = shift;
+    my ($self,$options) = @_;
 
     $self->{queue} ||= PICA::Edit::Queue->new( 
-        database => $self->{database},
+        database => $options->{database},
     );
+
+	$self->{unapi} = $options->{unapi};
+	use Data::Dumper;
+	print Dumper($options);
+
 }
 
 sub edit_from_input {
@@ -91,6 +99,7 @@ sub iterate_performed_edits {
 
         if ($edit->error) {
             log_error { $self->edit_error( "" => $edit ); };
+			# TODO: save error object
         } else {
             $_ = $edit;
             $callback->();
@@ -99,6 +108,21 @@ sub iterate_performed_edits {
 }
 
 =head1 COMMAND METHODS
+
+=cut
+
+sub run {
+	my ($self,$options,@args) = @_;
+
+	my $cmd = shift @args || die "missing command, use -h for help\n";
+	my $method = "command_$cmd";
+
+	if ( $self->can($method) ) {
+		$self->$method(@args);
+	} else {
+		die "Unknown command: $cmd";
+	}
+}
 
 =head2 command_request
 
@@ -115,16 +139,23 @@ sub command_request {
 
     $self->retrieve_and_perform_edit( $edit );
 
+	my $edit_id;
+
     if ($edit->error) {
         log_error { $self->edit_error( "malformed edit" => $edit ) };
+		# TODO: emit error object
     } else {
-        my $edit_id = $queue->insert( $edit );
+        $edit_id = $queue->insert( $edit );
 		if ($edit_id) {
 			log_info { "New edit request accepted: $edit_id" } 
 		} else {
 			log_error { "Failed to insert edit request" };
 		}
     }
+
+#	$self->{queue}-># return the requested edit?
+	
+	undef;
 }
 
 =head2 command_preview
@@ -136,10 +167,13 @@ Looks up an edit requests's edit, applies the edit and shows the result.
 sub command_preview {
     my $self = shift;
 
+	my @records;
+
     $self->iterate_performed_edits( sub {
-		# TODO: do something more useful
-        say $_->{after};
+        push @records, $_->{after};
     } => @_ );
+
+	return join ("\n", @records);
 }
 
 =head2 command_check
@@ -161,7 +195,11 @@ sub command_check {
 
         my $edit = $self->retrieve_and_perform_edit( $_ );
         if ($edit->error) {
+			
+			# TODO: save error object
+
             log_error { $self->edit_error( "" => $edit ); };
+
 		} elsif ($edit->{before}->string ne $edit->{after}->string) {
 			$self->{queue}->update( { status => 0 }, { edit_id => $edit_id } );
 			log_info { "edit $edit_id has not been performed yet" };
@@ -170,6 +208,8 @@ sub command_check {
 			log_info { "edit $edit_id is now done" }
 		}
     } => @_ );
+
+	undef;
 }
 
 sub command_reject {
@@ -178,8 +218,9 @@ sub command_reject {
     $self->iterate_edits( sub {
         ...
     } => @_ );
-}
 
+	undef;
+}
 
 sub command_remove {
     my $self = shift;
@@ -199,6 +240,7 @@ sub command_remove {
 #        }
     }
     # TODO: log successful removal
+	undef;
 }
 
 sub command_list {
@@ -224,7 +266,8 @@ sub command_list {
     $limit = $self->{limit} if ($self->{limit} || '') =~ /^\d+$/;
 
     my @list = $self->{queue}->select( $where, { limit => $limit } );
-    say $JSON->encode(\@list); # TODO: other output format
+
+	return $JSON->encode(\@list);
 }
 
 =method retrieve_and_perform_edit ( $edit )
@@ -247,7 +290,7 @@ sub retrieve_and_perform_edit {
     
     return $edit if $edit->error;
 
-    my $unapi = $self->{unapi} || croak "Missing unapi configuration";
+    my $unapi = $self->{unapi} || die "Missing unapi configuration";
     my ($before,$after);
 
     unless ($edit->{id} && $edit->{ppn}) {

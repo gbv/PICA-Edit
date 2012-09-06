@@ -1,0 +1,13 @@
+# sample configuration file
+
+unapi: http://unapi.gbv.de
+
+database:
+  dsn: "dbi:SQLite:dbname=picaedit.sqlite"
+
+logger:
+  - class: 'Log::Log4perl::Appender::File'
+    filename: "picaedit.log"
+  - class: 'Log::Log4perl::Appender::Screen'
+    layout: '%d{yyyy-mm-ddTHH::mm} %p{1} %C: %m{chomp}%n'
+
