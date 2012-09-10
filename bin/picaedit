@@ -6,11 +6,11 @@ use strict;
 use warnings;
 use v5.10;
 
-use App::picaedit;
+use App::Picaedit;
 use App::Run;
 
-my $app = App::picaedit->new;
-my $run = App::Run->new( $app, loglevel => 'INFO' );
+my $app = App::Picaedit->new;
+my $run = App::Run->new( sub { $app->call(@_) }, loglevel => 'INFO' );
 $run->run_with_args( @ARGV );
 
 =head1 NAME
@@ -25,40 +25,12 @@ picaedit - manage a PICA edit queue via command line
   # actions
   picaedit list [done|failed|rejected|pending] [limit=N]
            request < edit
- 
            check  editid | recordid
            reject editid [message]
-           
            preview editid
            preview < edit
 
   Configuration values can also be passed as key=value pairs.
-
-=head1 ACTIONS
-
-=over 4
-
-=item list
-
-...
-
-=item request
-
-Add a new edit request to the queue.
-
-=item preview
-
-...
-
-=item check
-
-...
-
-=item reject
-
-...
-
-=back
 
 =head1 CONFIGURATION
 
@@ -77,11 +49,7 @@ Base URL of an unAPI server to retrieve records from.
 
 =item loglevel
 
-Logging level (ALL,TRACE,DEBUG,INFO,WARN,ERROR,FATAL). Set to WARN by default.
-
-=item logger
-
-A list of 
+Logging level (ALL,TRACE,DEBUG,INFO,WARN,ERROR,FATAL). Set to INFO by default.
 
 =back
 
@@ -103,6 +71,14 @@ Print short help and exit.
 
 Print version and exit.
 
+=item -q, --quiet
+
+Set logging level to only show errors.
+
 =back
+
+=head1 SEE ALSO
+
+This command line application is implemented with L<App::Run>.
 
 =cut
