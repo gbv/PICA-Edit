@@ -8,7 +8,7 @@ use v5.10;
 use Carp;
 use Try::Tiny;
 use Scalar::Util qw(reftype blessed);
-use Log::Contextual qw(:log :dlog with_logger);
+use Log::Contextual qw(:log :dlog);
 use PICA::Edit::Request;
 use PICA::Edit::Queue;
 
@@ -31,11 +31,9 @@ sub init {
     $self->{queue} ||= PICA::Edit::Queue->new( 
         database => $options->{database},
     );
-
 	$self->{unapi} = $options->{unapi};
-	use Data::Dumper;
-	print Dumper($options);
 
+	log_trace { "initialized App::Picaedit" };
 }
 
 sub edit_from_input {
@@ -114,13 +112,12 @@ sub iterate_performed_edits {
 sub run {
 	my ($self,$options,@args) = @_;
 
-	my $cmd = shift @args || die "missing command, use -h for help\n";
+	my $cmd = shift @args || die "missing command. Use -h for help.\n";
 	my $method = "command_$cmd";
-
 	if ( $self->can($method) ) {
 		$self->$method(@args);
 	} else {
-		die "Unknown command: $cmd";
+		die "Unknown command: $cmd. Use -h for help.\n";
 	}
 }
 
@@ -324,23 +321,13 @@ sub retrieve_and_perform_edit {
 
 1;
 
-=head1 SYNOPSIS
-
-    # run as command line script
-    my $picaedit = App::picaedit->new;
-    $picaedit->parse_options(@ARGV);
-    $picaedit->execute;
-
-    # directly execute
-    App::picaedit->new( %config )->execute( @args );
-
 =head1 DESCRIPTION
 
-App::picaedit is the core of the L<picaedit> command line client. You can also
-create your own frontend using this package. Eventually App::picaedit delegates
-commands to an instance of L<PICA::Edit::Queue>.
+App::Picaedit is the core of the L<picaedit> command line client.  Eventually
+App::picaedit delegates commands to an instance of L<PICA::Edit::Queue>.
 
 =head1 SEE ALSO
 
+L<PICA::Record>, L<App::Run>
 
 =cut

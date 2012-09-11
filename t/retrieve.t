@@ -5,7 +5,7 @@ use Test::More skip_all => 'all'; # TODO
 use PICA::Record;
 use Try::Tiny;
 
-use PICA::Edit::Request;
+use PICA::Modification;
 
 my $http = <<'PICA';
 003@ $0456
@@ -16,7 +16,7 @@ no warnings 'redefine';
 local *LWP::Simple::get = sub { $http; };
 
 sub edit {
-    PICA::Edit::Request->new( id => 'foo:ppn:456', del => '047A', add => '021A $abar' );
+    PICA::Modification->new( id => 'foo:ppn:456', del => '047A', add => '021A $abar' );
 }
 my $e = edit;
 

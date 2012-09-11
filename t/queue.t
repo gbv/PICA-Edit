@@ -2,7 +2,7 @@ use Test::More;
 use Test::Exception;
 use strict;
 
-use PICA::Edit::Request;
+use PICA::Modification;
 use PICA::Edit::Queue;
 
 use File::Temp qw(tempfile);
@@ -34,7 +34,7 @@ isa_ok($q,'PICA::Edit::Queue');
 
 is($q->count,0,'empty queue');
 
-sub picaedit { PICA::Edit::Request->new( id => "foo:ppn:789" ) };
+sub picaedit { PICA::Modification->new( id => "foo:ppn:789" ) };
 
 my $e1 = picaedit;
 #print Dumper($e1)."\n";

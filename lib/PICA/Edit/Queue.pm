@@ -8,11 +8,14 @@ use v5.12;
 use Carp;
 use DBI;
 use Scalar::Util qw(blessed);
-use Log::Contextual qw(:log :dlog);
+use Log::Contextual::WarnLogger;
+use Log::Contextual qw(:log :dlog), 
+	-default_logger => Log::Contextual::WarnLogger->new({ env_prefix => 'PICA_QUEUE' });
+use PICA::Modification;
 
 =head1 DESCRIPTION
 
-The edit queue stores a list of edit requests (L<PICA::Edit::Request>). In
+The edit queue stores a list of edit requests (L<PICA::Modification>). In
 addition to the edit request's attributes (id,iln,epn,del,add), each request is
 stored with the following attributes:
 
@@ -86,9 +89,16 @@ sub database {
 
 	## first set database
 	
-	my $db = (blessed $_[0] and $_[0]->isa('DBI::db')) 
-		   ? { dbh => @_ }
-		   : ( ref $_[0] ? $_[0] : { @_ } );
+	my $db = { };
+	if (@_ == 1) {
+		if ( blessed $_[0] and $_[0]->isa('DBI::db') ) { 
+		   $db = { dbh => @_ };
+		} elsif( ref $_[0] ) {
+		   $db = $_[0];
+		}
+	} else { 
+		$db = { @_ };
+	}
 
 	if ($db->{dbh}) { 
 		$self->{db} = $db->{dbh};
@@ -131,7 +141,7 @@ SQL
 
 =method insert( $edit, { creator => $creator } )
 
-Insert a L<PICA::Edit::Request>. The edit is stored with a timestamp and
+Insert a L<PICA::Modification>. The edit is stored with a timestamp and
 creator unless it is malformed. Returns an edit identifier or success. 
  
 =cut
@@ -298,7 +308,7 @@ Reject an edit request, optional with a message.
 =cut
 
 sub reject {
-	...
+	...;
 }
 
 1;

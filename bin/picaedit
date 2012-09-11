@@ -4,14 +4,18 @@
 
 use strict;
 use warnings;
-use v5.10;
 
-use App::Picaedit;
+use App::picaedit;
 use App::Run;
 
-my $app = App::Picaedit->new;
-my $run = App::Run->new( sub { $app->call(@_) }, loglevel => 'INFO' );
-$run->run_with_args( @ARGV );
+my $app = App::picaedit->new;
+App::Run->new( $app, 
+	loglevel => 'INFO',
+	logger => [{
+		class  => 'Log::Log4perl::Appender::Screen',
+		layout => '%p: %m{chomp}%n'
+	}],
+)->run_with_args( @ARGV );
 
 =head1 NAME
 
