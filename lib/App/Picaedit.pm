@@ -1,4 +1,4 @@
-package App::picaedit;
+package App::Picaedit;
 #ABSTRACT: picaedit core application
 
 use strict;
@@ -9,7 +9,7 @@ use Carp;
 use Try::Tiny;
 use Scalar::Util qw(reftype blessed);
 use Log::Contextual qw(:log :dlog);
-use PICA::Edit::Request;
+use PICA::Modification;
 use PICA::Edit::Queue;
 
 use LWP::Simple ();
@@ -28,34 +28,25 @@ sub new {
 sub init {
     my ($self,$options) = @_;
 
-    $self->{queue} ||= PICA::Edit::Queue->new( 
-        database => $options->{database},
-    );
+    $self->{queue} ||= PICA::Edit::Queue->new( %$options ); 
 	$self->{unapi} = $options->{unapi};
 
 	log_trace { "initialized App::Picaedit" };
 }
 
-sub edit_from_input {
+sub modification_request {
     my $self = shift;
 
-	# check whether edit has been provided from configuration
+    my %attr = map { $_ => $self->{$_} } grep { exists $self->{$_} }
+		qw(id iln epn del add);
 
-    my $edit;
-	
-	if ( $self->{edit} ) {
-		$edit = PICA::Edit::Request->new( $self->{edit} );
-	} elsif( grep { exists $self->{$_} } qw(id iln epn del add) )  {
-		$edit = PICA::Edit::Request->new(
-    	    map { $_ => $self->{$_} } qw(id iln epn del add)
-	    );
-	} elsif( !is_interactive() ) { # from STDIN
-		$edit = read_file( \*STDIN );
-		log_trace { "edit from STDIN: $edit" };
-		$edit = PICA::Edit::Request->new( $edit );
+	if( !%attr and !is_interactive() ) { # JSON from STDIN
+		my $json = read_file( \*STDIN );
+		$json = $JSON->decode($json);
+		%attr = %$json;
 	}
 
-	return $edit;
+	return PICA::Modification->new( %attr );
 }
 
 sub edit_error {
@@ -77,7 +68,7 @@ sub iterate_edits {
             log_warn { "invalid edit_id: $_" };
             next;
         }
-        my $edit = $self->{queue}->select( { edit_id => $_ } );
+        my $edit = $self->{queue}->get( $_ );
         if ($edit) {
             $_ = $edit;
             $callback->();
@@ -115,7 +106,14 @@ sub run {
 	my $cmd = shift @args || die "missing command. Use -h for help.\n";
 	my $method = "command_$cmd";
 	if ( $self->can($method) ) {
-		$self->$method(@args);
+		my $result = $self->$method(@args);
+		if (defined $result) {
+			if (ref $result) {
+				say $JSON->encode($result);
+			} else {
+				say $result;
+			}
+		}
 	} else {
 		die "Unknown command: $cmd. Use -h for help.\n";
 	}
@@ -131,8 +129,8 @@ sub command_request {
     my $self = shift;
     my $queue = $self->{queue};
 
-    my $edit = $self->edit_from_input(@_);
-    Dlog_trace { $_ } $edit;
+    my $edit = $self->modification_request(@_);
+    Dlog_trace { "parsed modification request: $_" } $edit;
 
     $self->retrieve_and_perform_edit( $edit );
 
@@ -149,8 +147,6 @@ sub command_request {
 			log_error { "Failed to insert edit request" };
 		}
     }
-
-#	$self->{queue}-># return the requested edit?
 	
 	undef;
 }
@@ -224,19 +220,16 @@ sub command_remove {
 
     log_error { "expect edit_id as argument" } unless @_;
 
-    foreach (@_) {
+    foreach my $id (@_) {
         unless (/^\d+$/) {
-            log_warn { "invalid edit_id: $_" };
+            log_warn { "invalid edit_id: $id" };
             next;
         }
 
-        my $s = $self->{queue}->remove( { edit_id => $_ } );
-#        say "S:$s\n";
-#        if (!$queue->remove( { edit_id => $_ } )) {
-#            say "not found";
-#        }
+        my $ok = $self->{queue}->remove( $id );
+		# TODO: $ok must be equal to $id on succes
     }
-    # TODO: log successful removal
+
 	undef;
 }
 
@@ -280,7 +273,7 @@ sub retrieve_and_perform_edit {
     my ($self, $edit) = @_;
 
 	unless (blessed $edit) {
-		bless $edit, 'PICA::Edit::Request';
+		bless $edit, 'PICA::Modification';
 		$edit->check;
 	}
     Dlog_trace { "as_edit $_" } $edit;
@@ -299,22 +292,13 @@ sub retrieve_and_perform_edit {
         my $url = $unapi . '?format=pp&id=' . $edit->{id};
 		log_trace { $url };
         $before = PICA::Record->new( LWP::Simple::get( $url ) ); 
+
+	    $edit->{before} = $before;
+	    $edit->{after}  = $edit->apply( $before, strict => 1 );
+
     } catch {
         $edit->error( id => 'failed to retrieve record' ); # modifies edit
     };
-
-    if ( $before ) {
-        try {
-            $after = $edit->perform_strict( $before );
-        } catch {
-            while (my ($k,$v) = each %$_) {
-                $edit->error( $k => $v ); # modifes edit
-            }
-        };
-    }
-
-    $edit->{before} = $before;
-    $edit->{after}  = $after;
 
     return $edit;
 }
@@ -324,7 +308,7 @@ sub retrieve_and_perform_edit {
 =head1 DESCRIPTION
 
 App::Picaedit is the core of the L<picaedit> command line client.  Eventually
-App::picaedit delegates commands to an instance of L<PICA::Edit::Queue>.
+App::Picaedit delegates commands to an instance of L<PICA::Edit::Queue>.
 
 =head1 SEE ALSO
 

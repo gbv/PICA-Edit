@@ -1,23 +1,10 @@
-PICA::Edit::Server: 
-	Simple PSGI script
+PICA::Edit::Queue::*
+	manage lists of PICA::Modification::Request
+	best and easiest to test is PICA::Edit::Queue::Hash
 
-PICA::Edit::Client
-	HTTP client
+PICA::Edit::Server 
+	should implement a REST API on top of a PICA::Edit::Queue
 
-
-Command line
-------------
-
-arguments => CALL-Object
-
-Backend: CALL => RESPONSE 
-  arguments => call => (result object | result error)
-
-RESPONSE-Object ( error or anything )
-
-#execute_cli(
-
-#execute_obj( $c
-
-RESPONSE:
-    
+1. Clean up App::Picaedit (test with PICA::Edit::Queue::Hash)
+2. Write PICA::Edit::Server
+3. Refactor picamodbot

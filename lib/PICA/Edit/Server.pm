@@ -1,85 +1,71 @@
 package PICA::Edit::Server;
-#ABSTRACT: PICA edit request server as PSGI application
 
-use strict;
-use warnings;
-use v5.10;
+use parent 'Plack::Component';
 
-use parent qw(Plack::Component);
-
+use Plack::Builder;
+use Plack::Middleware::REST::Util;
+use HTTP::Status qw(status_message);
+use Plack::Util::Accessor qw(database);
+use PICA::Edit::Queue;
 use Plack::Request;
-use Plack::Response;
-use App::picaedit;
+
+use JSON;
+my $JSON=JSON->new;
+
+# utility method
+sub response {
+	my $code = shift;
+	my $body = @_ ? shift : status_message($code); 
+	$body = $JSON->encode($json) unless $json =~ /^{/;
+	[ $code, [ 'Content-Type' => 'application/json', @_ ], [ $body ] ];
+}
 
 sub prepare_app {
 	my $self = shift;
-	use Data::Dumper;
-	
-	my $backend = App::picaedit->new(
-		# TODO: ...
-		config => $self->{config}
-	);
-	$backend->prepare;
+	return unless $self->{app};
 
-	# TODO: change logger for PSGI
+	my $Q = PICA::Edit::Queue->new( database => $self->database );
+	$self->{queue} = $Q;
 
-	$self->{picaedit} = $backend;
+	$self->{app} = builder {
+		# TODO: enable 'Negotiate'
+		enable 'REST',
+			get    => sub {
+				my $env = shift;
+				my $edit = $Q->get( request_id( $env ) );
+				return $edit ? response(404) : response(200 => $edit);
+			},
+			create => sub {
+				my $env  = shift;
+				my $json = $JSON->decode( request_content($env) );
+				my $edit = PICA::Modification->new( %$json ); 
+				my $id = $Q->insert( $edit );
+				return response(400) unless $id;
+			    my $uri = request_uri($env,$id);
+			    return response(204, '', Location => $uri);
+			},
+			upsert => sub {
+				my $env = shift;
+				my $id = request_id($env);
+				undef;
+			},
+			delete => sub {
+				my $env = shift;
+				my $id = request_id($env);
+				undef;
+			},
+			list   => sub {
+				my $env = shift;
+				undef;
+			};
+			
+		sub { [500,[],[]] };
+	};
 }
 
 sub call {
 	my $self = shift;
-	my $req  = Plack::Request->new(shift);
-
-	my $path   = $req->path;
-	my $method = $req->method;
-
-	my $backend = $self->{picaedit};
-
-	my $res = Plack::Response->new(404,[],['{"error":"Not found"}']);
-
-	$res->headers( { 'Content-Type' => 'application/json; charset=utf-8' } );
-
-	# TODO: log errors to $var
-	
-#	if ( $path =~ qr{^/(\d+)\.pp} ) {
-#	} els
-	if ( $path =~ qr{^/(\d+)\.pp} ) {
-		my $edit_id = $1;
-		if ($method eq 'GET') {
-			my $body = $backend->execute('preview', $edit_id );
-			#$backend->{result};
-			
-			$res->headers( { 'Content-Type' => 'text/plain' } );
-			$res->body( $body ) if $body;
-
-		} elsif ($method eq 'DELETE') {
-			# TODO: access control
-			...
-			# TODO: on error
-#			$backend->{queue}remove('check', $edit_id );
-		}
-	} else {
-		
-		# TODO: limit, status, sort_by, page etc.
-
-		my $out = $backend->execute('list'); 
-		$res->body( $out );
-	}
-
-	return $res->finalize;
+	$self->call(@_);
 }
 
 1;
-
-=head1 SYNOPSIS
-
-    use PICA::Edit::Server;
-	
-	my $app = PICA::Edit::Server->new(
-		database
-		config => 'your_config_file'
-	);
-
-	$app;
-
-=cut

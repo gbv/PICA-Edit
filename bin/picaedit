@@ -5,10 +5,10 @@
 use strict;
 use warnings;
 
-use App::picaedit;
+use App::Picaedit;
 use App::Run;
 
-my $app = App::picaedit->new;
+my $app = App::Picaedit->new;
 App::Run->new( $app, 
 	loglevel => 'INFO',
 	logger => [{

@@ -4,6 +4,7 @@ use strict;
 
 use PICA::Modification;
 use PICA::Edit::Queue;
+use PICA::Edit::Queue::Test;
 
 use File::Temp qw(tempfile);
 use DBI;
@@ -16,7 +17,7 @@ plan skip_all => "Skipping tests in lack of DBD::SQLite" if $@;
 
 ## test database configuration
 
-dies_ok { PICA::Edit::Queue->new( database => undef ) } 'database required';
+#dies_ok { PICA::Edit::Queue->new( database => { } ) 'database required';
 
 my $dbfile;
 (undef,$dbfile) = tempfile();
@@ -25,31 +26,12 @@ my $dbh = DBI->connect($dsn,"","")
     or plan skip_all => "Skipping tests in lack of DBD::SQLite";
 
 my $q = PICA::Edit::Queue->new( database => $dbh );
-isa_ok($q,'PICA::Edit::Queue');
+isa_ok($q,'PICA::Edit::Queue::DB');
 
-my $q = PICA::Edit::Queue->new( database => { dsn => $dsn } );
-isa_ok($q,'PICA::Edit::Queue');
 
-###
+$q = PICA::Edit::Queue->new( database => { dsn => $dsn } );
+isa_ok($q,'PICA::Edit::Queue::DB');
 
-is($q->count,0,'empty queue');
-
-sub picaedit { PICA::Modification->new( id => "foo:ppn:789" ) };
-
-my $e1 = picaedit;
-#print Dumper($e1)."\n";
-
-my $id = $q->insert( $e1 );
-ok( $id, "inserted edit" );
-is( $q->count, 1, 'count = 1' );
-
-my $e2;
-($e2) = $q->select( { edit_id => $id } );
-$e2   = $q->select( { edit_id => $id } );
-ok( $e2, "selected edit" );
-
-#use Data::Dumper;
-#print Dumper($e2)."\n";
-#print( $e2->{created} );
+test_queue( $q );
 
 done_testing;
