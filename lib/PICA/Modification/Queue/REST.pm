@@ -1,8 +1,11 @@
-package PICA::Edit::Queue::REST;
+package PICA::Modification::Queue::REST;
 #ABSTRACT: REST client
+
 use strict;
 use warnings;
 use v5.10;
+
+use parent 'PICA::Modification::Queue';
 
 use LWP::UserAgent;
 use HTTP::Headers;

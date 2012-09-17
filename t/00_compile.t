@@ -1,3 +1,6 @@
-use Test::More tests => 1;
+use Test::More tests => 2;
 
-use_ok 'PICA::Edit::Queue';
+BEGIN {
+    use_ok 'App::Picaedit';
+    use_ok 'PICA::Edit::Server';
+}

@@ -3,8 +3,8 @@ use Test::Exception;
 use strict;
 
 use PICA::Modification;
-use PICA::Edit::Queue;
-use PICA::Edit::Queue::Test;
+use PICA::Modification::Queue;
+use PICA::Modification::TestQueue;
 
 use File::Temp qw(tempfile);
 use DBI;
@@ -17,7 +17,7 @@ plan skip_all => "Skipping tests in lack of DBD::SQLite" if $@;
 
 ## test database configuration
 
-#dies_ok { PICA::Edit::Queue->new( database => { } ) 'database required';
+#dies_ok { PICA::Modification::Queue->new( database => { } ) 'database required';
 
 my $dbfile;
 (undef,$dbfile) = tempfile();
@@ -25,13 +25,9 @@ my $dsn = "dbi:SQLite:dbname=$dbfile";
 my $dbh = DBI->connect($dsn,"","") 
     or plan skip_all => "Skipping tests in lack of DBD::SQLite";
 
-my $q = PICA::Edit::Queue->new( database => $dbh );
-isa_ok($q,'PICA::Edit::Queue::DB');
+new_ok 'PICA::Modification::Queue' => [ 'DB', database => $dbh ];
 
-
-$q = PICA::Edit::Queue->new( database => { dsn => $dsn } );
-isa_ok($q,'PICA::Edit::Queue::DB');
-
-test_queue( $q );
+my $q = new_ok 'PICA::Modification::Queue' => [ 'DB', database => { dsn => $dsn } ];
+test_queue $q, 'PICA::Modification::Queue::DB';
 
 done_testing;

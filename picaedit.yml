@@ -2,8 +2,10 @@
 
 unapi: http://unapi.gbv.de
 
-database:
-  dsn: "dbi:SQLite:dbname=picaedit.sqlite"
+queue:
+    class: 'DB'
+    database:
+        dsn: "dbi:SQLite:dbname=picaedit.sqlite"
 
 logger:
   - class: 'Log::Log4perl::Appender::File'

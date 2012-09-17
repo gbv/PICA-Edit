@@ -1,12 +1,13 @@
 package PICA::Edit::Server;
+#ABSTRACT: REST API to manage modification requests
 
 use parent 'Plack::Component';
 
 use Plack::Builder;
 use Plack::Middleware::REST::Util;
 use HTTP::Status qw(status_message);
-use Plack::Util::Accessor qw(database);
-use PICA::Edit::Queue;
+use Plack::Util::Accessor qw(queue);
+use PICA::Modification::Queue;
 use Plack::Request;
 
 use JSON;
@@ -24,7 +25,10 @@ sub prepare_app {
 	my $self = shift;
 	return unless $self->{app};
 
-	my $Q = PICA::Edit::Queue->new( database => $self->database );
+    my $queue = $self->queue;
+    my $queue_class = delete $queue->{class};
+
+	my $Q = PICA::Modification::Queue->new( $class, %$queue );
 	$self->{queue} = $Q;
 
 	$self->{app} = builder {

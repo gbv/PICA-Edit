@@ -10,7 +10,7 @@ use Try::Tiny;
 use Scalar::Util qw(reftype blessed);
 use Log::Contextual qw(:log :dlog);
 use PICA::Modification;
-use PICA::Edit::Queue;
+use PICA::Modification::Queue;
 
 use LWP::Simple ();
 
@@ -28,7 +28,10 @@ sub new {
 sub init {
     my ($self,$options) = @_;
 
-    $self->{queue} ||= PICA::Edit::Queue->new( %$options ); 
+    my $queue = $options->{queue};
+    my $qclass = delete $queue->{class};
+
+    $self->{queue} ||= PICA::Modification::Queue->new( $qclass, %$queue ); 
 	$self->{unapi} = $options->{unapi};
 
 	log_trace { "initialized App::Picaedit" };
@@ -194,10 +197,16 @@ sub command_check {
             log_error { $self->edit_error( "" => $edit ); };
 
 		} elsif ($edit->{before}->string ne $edit->{after}->string) {
-			$self->{queue}->update( { status => 0 }, { edit_id => $edit_id } );
+            ...; # TODO:
+  #          my $new = PICA::Modification::---
+ #           $new->{status} = 0;
+#			$self->{queue}->update( $edit_id => $new );
 			log_info { "edit $edit_id has not been performed yet" };
 		} else {
-			$self->{queue}->update( { status => 1 }, { edit_id => $edit_id } );
+            ...; # TODO:
+#            my $new = PICA::Modification::---
+ #           $new->{status} = 1;
+#			$self->{queue}->update( $edit_id => $new );
 			log_info { "edit $edit_id is now done" }
 		}
     } => @_ );
@@ -226,7 +235,7 @@ sub command_remove {
             next;
         }
 
-        my $ok = $self->{queue}->remove( $id );
+        my $ok = $self->{queue}->delete( $id );
 		# TODO: $ok must be equal to $id on succes
     }
 
@@ -308,7 +317,7 @@ sub retrieve_and_perform_edit {
 =head1 DESCRIPTION
 
 App::Picaedit is the core of the L<picaedit> command line client.  Eventually
-App::Picaedit delegates commands to an instance of L<PICA::Edit::Queue>.
+App::Picaedit delegates commands to an instance of L<PICA::Modification::Queue>.
 
 =head1 SEE ALSO
 

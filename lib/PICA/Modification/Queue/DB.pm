@@ -1,11 +1,11 @@
-package PICA::Edit::Queue::DB;
-#ABSTRACT: Manages a list of PICA edit requests
+package PICA::Modification::Queue::DB;
+#ABSTRACT: Manages a list of PICA edit requests in a SQL Database
 
 use strict;
 use warnings;
 use v5.12;
 
-use parent 'PICA::Edit::Queue';
+use parent 'PICA::Modification::Queue';
 
 use Carp;
 use DBI;
@@ -109,7 +109,8 @@ creator unless it is malformed. Returns an edit identifier or success.
 
 sub insert {
     my ($self, $edit, %attr) = @_;
-    croak("malformed edit") if !$edit or $edit->error;
+    #croak("malformed edit") if !$edit or $edit->error;
+    return if !$edit or $edit->error;
 
     my %data = ( map { $_ => $edit->{$_} } qw(id iln epn add del creator) );
     $data{creator} = $attr{creator} || '';
@@ -128,13 +129,13 @@ sub insert {
 	$db->last_insert_id(undef,undef, $self->{table}, 'request');
 }
 
-=method remove( request )
+=method delete( request )
 
 Entirely remove an edit requests. Returns the number of removed requests.
 
 =cut
 
-sub remove {
+sub delete {
     my ($self, $request) = @_;
 
     my $db    = $self->{db};
@@ -174,11 +175,14 @@ sub _dbdo {
 sub list {
 	my ($self, %options) = @_;
 
-	my $limit = delete $options{pagesize};
-	
-	return $self->select( { %options }, { limit => $limit } );
+	my $pagesize = delete $options{pagesize} || 20;
+    my $page     = delete $options{page} || 1;
+    my $sort     = delete $options{sort} || 'updated';
 
-	# TODO: page, sort
+    my $offset = ($page-1)*$pagesize;
+    my $limit  = $pagesize;
+
+	return [ $self->select( { %options }, { limit => $limit, orderby => $sort, offset => $offset } ) ];
 }
 
 =method select( { key => $value ... } [ , { limit => $limit } ] )
@@ -194,7 +198,9 @@ sub select {
     my $db    = $self->{db};
     my $table = $db->quote_identifier($self->{table});
 
-    my $limit = $opts->{limit} || (wantarray ? 0 : 1);
+    my $limit   = $opts->{limit} || (wantarray ? 0 : 1);
+    my $orderby = $opts->{orderby} || 'updated';
+    my $offset  = $opts->{offset} || 0;
 
     my $which_cols = '*';
     # $which_cols = join(',', map { $db->quote_identifier($_) } @cols);
@@ -203,10 +209,11 @@ sub select {
     ($where, @bind_params) = $self->_where_clause( $where );
 
     my $sql = "SELECT $which_cols FROM $table $where"
-            . " ORDER BY " . $db->quote_identifier('updated');
+            . " ORDER BY " . $db->quote_identifier($orderby);
     $sql .= " LIMIT $limit" if $limit;
+    $sql .= " OFFSET $offset" if $offset > 1 and $limit;
 
-    # TODO: $edit->{del} must be an array (?)
+    log_trace { $sql };
 
     if ($limit == 1) {
         return $db->selectrow_hashref( $sql, undef, @bind_params );
@@ -250,17 +257,20 @@ sub count {
     return $count;
 }
 
-=method update( { status => $status }, { request => $request })
+=method update( $id => $modification )
 
-...TODO: change method signature
 
 =cut
 
 sub update {
-    my ($self, $data, $where) = @_;
+    my ($self, $id, $modification) = @_;
+    return if !$modification or $modification->error;
+        # or $id ne $modification->{request};
 
-	croak "missing where clause in update" unless %$where;
-	croak "missing data in update" unless %$data;
+#	croak "missing where clause in update" unless %$where;
+#	croak "missing data in update" unless %$data;
+    my $data = $modification->attributes;
+    my $where = { request => $id };
 
     my $db    = $self->{db};
     my $table = $db->quote_identifier($self->{table});
@@ -268,6 +278,7 @@ sub update {
     my @bind_params;
 	($where, @bind_params) = $self->_where_clause( $where );
 
+#$ENV{PICA_QUEUE_TRACE} = 1;
 	Dlog_trace { "UPDATE $_" } @_;
 
 	my $values = join ',', map { $db->quote_identifier($_) .'=?' } keys %$data;
@@ -286,6 +297,6 @@ sub update {
 
 =head1 LOGGING
 
-PICA::Edit::Queue uses L<Log::Contextual> for logging. 
+This package uses L<Log::Contextual> for logging. 
 
 =cut
